@@ -1,5 +1,12 @@
 /config/dbconnection.php
 /config/symbini.php
+php.ini
+.project
+.settings/org.eclipse.core.resources.prefs
+.settings/org.eclipse.php.ui.prefs
+.htaccess
+.user.ini
+**/error_log
 .project
 .settings/org.eclipse.core.resources.prefs
 .settings/org.eclipse.php.ui.prefs
