@@ -3,8 +3,6 @@ include_once($SERVER_ROOT.'/classes/DwcArchiverCore.php');
 
 class DwcArchiverPublisher extends DwcArchiverCore{
 
-	private $materialSampleIsActive = false;
-
 	public function __construct(){
 		parent::__construct('write');
 	}
@@ -13,10 +11,12 @@ class DwcArchiverPublisher extends DwcArchiverCore{
 		parent::__destruct();
 	}
 
-	private function resetCollArr($collTarget){
+	public function resetCollArr($id){
 		unset($this->collArr);
 		$this->collArr = array();
-		$this->setCollArr($collTarget);
+		$this->setCollArr($id);
+		$this->conditionArr['collid'] = $id;
+		$this->conditionSql = '';
 	}
 
 	public function verifyCollRecords($collId){
@@ -32,16 +32,9 @@ class DwcArchiverPublisher extends DwcArchiverCore{
 
 		//Get NULL GUID counts
 		$guidTarget = ($this->collArr?$this->collArr[$collId]['guidtarget']:'');
+		if($guidTarget == 'symbiotaUUID') $guidTarget = 'recordID';
 		if($guidTarget){
-			$sql = 'SELECT COUNT(o.occid) AS cnt FROM omoccurrences o ';
-			if($guidTarget == 'symbiotaUUID'){
-				$sql .= 'LEFT JOIN guidoccurrences g ON o.occid = g.occid WHERE g.occid IS NULL ';
-			}
-			else{
-				$sql .= 'WHERE o.'.$guidTarget.' IS NULL ';
-			}
-			$sql .= 'AND o.collid = '.$collId;
-			//echo 'SQL: '.$sql.'<br/>';
+			$sql = 'SELECT COUNT(occid) AS cnt FROM omoccurrences WHERE '.$guidTarget.' IS NULL AND collid = '.$collId;
 			$rs = $this->conn->query($sql);
 			while($r = $rs->fetch_object()){
 				$recArr['nullGUIDs'] = $r->cnt;
@@ -58,8 +51,23 @@ class DwcArchiverPublisher extends DwcArchiverCore{
 		$this->logOrEcho("\n-----------------------------------------------------\n\n");
 
 		$successArr = array();
+		$includeAttributes = $this->includeAttributes;
+		$includeMatSample = $this->includeMaterialSample;
+		$includeIdentifiers = $this->includeIdentifiers;
 		foreach($collIdArr as $id){
 			//Create a separate DWCA object for each collection
+			if($includeAttributes){
+				if($this->hasAttributes($id)) $this->includeAttributes = true;
+				else $this->includeAttributes = false;
+			}
+			if($includeMatSample){
+				if($this->hasMaterialSamples($id)) $this->includeMaterialSample = true;
+				else $this->includeMaterialSample = false;
+			}
+			if($includeIdentifiers){
+				if($this->hasIdentifiers($id)) $this->includeIdentifiers = true;
+				else $this->includeIdentifiers = false;
+			}
 			$this->resetCollArr($id);
 			$this->conditionArr['collid'] = $id;
 			$this->conditionSql = '';
@@ -68,6 +76,9 @@ class DwcArchiverPublisher extends DwcArchiverCore{
 				$status = true;
 			}
 		}
+		$this->includeAttributes = $includeAttributes;
+		$this->includeMaterialSample = $includeMatSample;
+		$this->includeIdentifiers = $includeIdentifiers;
 		//Reset $this->collArr with all the collections ran successfully and then rebuild the RSS feed
 		$this->resetCollArr(implode(',',$successArr));
 		$this->writeRssFile();
@@ -77,7 +88,7 @@ class DwcArchiverPublisher extends DwcArchiverCore{
 
 	public function writeRssFile(){
 
-		$this->logOrEcho("Mapping data to RSS feed... \n");
+		$this->logOrEcho('Mapping data to RSS feed... ');
 
 		//Create new document and write out to target
 		$newDoc = new DOMDocument('1.0',$this->charSetOut);
@@ -113,7 +124,7 @@ class DwcArchiverPublisher extends DwcArchiverCore{
 		//Create new item for target archives and load into array
 		$itemArr = array();
 		foreach($this->collArr as $collID => $cArr){
-			$cArr = $this->utf8EncodeArr($cArr);
+			$this->encodeArr($cArr);
 			$itemElem = $newDoc->createElement('item');
 			$itemAttr = $newDoc->createAttribute('collid');
 			$itemAttr->value = $collID;
@@ -205,11 +216,12 @@ class DwcArchiverPublisher extends DwcArchiverCore{
 
 		if($sourcePath == $deprecatedPath || !file_exists($deprecatedPath)){
 			$redirectDoc = new DOMDocument();
-			$redirectDoc->loadXML('<redirect><newLocation>'.$this->getDomain().$GLOBALS['CLIENT_ROOT'].'/content/dwca/rss.xml</newLocation></redirect>');
+			$redirectDoc->loadXML('<redirect><newLocation>' . GeneralUtil::getDomain() . $GLOBALS['CLIENT_ROOT'] . '/content/dwca/rss.xml</newLocation></redirect>');
 			$redirectDoc->save($deprecatedPath);
 		}
 
-		$this->logOrEcho("Done!\n");
+		$this->logOrEcho('Done!', 1);
+		$this->logOrEcho('-----------------------------------------------------');
 	}
 
 	//Misc data retrival functions
@@ -247,7 +259,7 @@ class DwcArchiverPublisher extends DwcArchiverCore{
 
 	public function getCollectionList($catID){
 		$retArr = array();
-		$serverName = $this->getDomain();
+		$serverName = GeneralUtil::getDomain();
 		$sql = 'SELECT c.collid, c.collectionname, CONCAT_WS("-",c.institutioncode,c.collectioncode) as instcode, c.guidtarget, c.dwcaurl, c.managementtype, c.dynamicProperties '.
 			'FROM omcollections c INNER JOIN omcollectionstats s ON c.collid = s.collid '.
 			'LEFT JOIN omcollcatlink l ON c.collid = l.collid '.
@@ -263,7 +275,6 @@ class DwcArchiverPublisher extends DwcArchiverCore{
 			$retArr[$r->collid]['url'] = $url;
 			if(!$r->guidtarget) $retArr[$r->collid]['err'] = 'MISSING_GUID';
 			elseif($r->dwcaurl && !strpos($serverName, 'localhost') && strpos($r->dwcaurl, str_replace('www.', '', $serverName)) === false) $retArr[$r->collid]['err'] = 'ALREADY_PUB_DOMAIN';
-			if($r->dynamicProperties && strpos($r->dynamicProperties,'matSample":{"status":1')) $this->materialSampleIsActive = true;
 		}
 		$rs->free();
 		return $retArr;
@@ -295,10 +306,6 @@ class DwcArchiverPublisher extends DwcArchiverCore{
 		return $retArr;
 	}
 
-	public function materialSampleIsActive(){
-		return $this->materialSampleIsActive;
-	}
-
 	//Mics functions
 	private function aasort(&$array, $key){
 		$sorter = array();
@@ -315,22 +322,27 @@ class DwcArchiverPublisher extends DwcArchiverCore{
 	}
 
 	public function humanFileSize($filePath) {
+		$x = false;
 		if(substr($filePath,0,4)=='http') {
-			$x = array_change_key_case(get_headers($filePath, 1),CASE_LOWER);
-			if( strcasecmp($x[0], 'HTTP/1.1 200 OK') != 0 ) {
-				$x = $x['content-length'][1];
-			}
-			else {
-				$x = $x['content-length'];
+			if($headerArr = @get_headers($filePath, 1)){
+				$x = array_change_key_case($headerArr, CASE_LOWER);
+				if( strcasecmp($x[0], 'HTTP/1.1 200 OK') != 0 ) {
+					$x = $x['content-length'][1];
+				}
+				else {
+					$x = $x['content-length'];
+				}
 			}
 		}
 		else {
 			$x = @filesize($filePath);
 		}
-		$x = round($x/1000000, 1);
-		if(!$x) $x = 0.1;
-
-		return $x.'M ';
+		if($x !== false){
+			$x = round($x/1000000, 1);
+			if(!$x) $x = 0.1;
+			return $x.'M';
+		}
+		return '?M';
 	}
 }
 ?>

@@ -1,6 +1,6 @@
 <?php
-include_once($SERVER_ROOT.'/config/dbconnection.php');
-include_once($SERVER_ROOT.'/classes/UuidFactory.php');
+include_once($SERVER_ROOT . '/config/dbconnection.php');
+include_once($SERVER_ROOT . '/classes/utilities/UuidFactory.php');
 
 class OccurrenceSkeletal {
 
@@ -25,7 +25,7 @@ class OccurrenceSkeletal {
 			'SC' => 'South Carolina', 'SD' => 'South Dakota', 'TN' => 'Tennessee', 'TX' => 'Texas', 'UT' => 'Utah', 'VT' => 'Vermont',
 			'VI' => 'Virgin Islands', 'VA' => 'Virginia', 'WA' => 'Washington', 'WV' => 'West Virginia', 'WI' => 'Wisconsin', 'WY' =>  'Wyoming');
 		$this->allowedFields = array('collid'=>'n','catalognumber'=>'s','othercatalognumbers'=>'s','sciname'=>'s','tidinterpreted'=>'s','family'=>'s',
-			'scientificnameauthorship'=>'s','localitysecurity'=>'n','country'=>'s','stateprovince'=>'s','county'=>'s','processingstatus'=>'s',
+			'scientificnameauthorship'=>'s','recordsecurity'=>'n','country'=>'s','stateprovince'=>'s','county'=>'s','processingstatus'=>'s',
 			'recordedby'=>'s','recordnumber'=>'s','eventdate'=>'d','labelproject'=>'s','language'=>'s');
 	}
 
@@ -54,19 +54,14 @@ class OccurrenceSkeletal {
 					$sql2 .= ',NULL';
 				}
 			}
-			$sql = 'INSERT INTO omoccurrences('.trim($sql1,' ,').',recordenteredby,dateentered) VALUES('.trim($sql2,' ,').',"'.$GLOBALS['USERNAME'].'","'.date('Y-m-d H:i:s').'")';
-			//echo $sql;
+			$guid = UuidFactory::getUuidV4();
+			$sql = 'INSERT INTO omoccurrences('.trim($sql1,' ,').',recordEnteredBy,dateEntered,recordID) VALUES('.trim($sql2,' ,').',"'.$GLOBALS['USERNAME'].'","'.date('Y-m-d H:i:s').'","'.$guid.'")';
 			if($this->conn->query($sql)){
 				$status = true;
 				$occid = $this->conn->insert_id;
 				$this->occidArr[] = $occid;
 				//Update collection stats
 				$this->conn->query('UPDATE omcollectionstats SET recordcnt = recordcnt + 1 WHERE collid = '.$this->collid);
-				//Create and insert Symbiota GUID (UUID)
-				$guid = UuidFactory::getUuidV4();
-				if(!$this->conn->query('INSERT INTO guidoccurrences(guid,occid) VALUES("'.$guid.'",'.$occid.')')){
-					$this->errorStr = '(WARNING: Symbiota GUID mapping failed) ';
-				}
 				if(isset($postArr['ometid']) && $postArr['ometid'] && isset($postArr['exsnumber']) && $postArr['exsnumber']){
 					$this->addExsiccate($occid, $postArr['ometid'], $postArr['exsnumber']);
 				}
@@ -175,12 +170,12 @@ class OccurrenceSkeletal {
 				$countryStr = 'United States';
 			}
 			else{
-				$sql = 'SELECT c.countryname '.
-					'FROM lkupstateprovince s INNER JOIN lkupcountry c ON s.countryid = c.countryid '.
-					'WHERE s.statename = "'.$state.'"';
+				$sql = 'SELECT c.geoTerm AS countryName
+					FROM geographicthesaurus s INNER JOIN geographicthesaurus c ON s.parentID = c.geoThesID
+					WHERE s.geoTerm = "'.$state.'"';
 				$rs = $this->conn->query($sql);
 				if($r = $rs->fetch_object()) {
-					$countryStr = $r->countryname;
+					$countryStr = $r->countryName;
 				}
 				$rs->free();
 			}

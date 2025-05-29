@@ -54,8 +54,8 @@ class OccurrenceProtectedSpecies extends OccurrenceMaintenance {
 			$sql2 = 'UPDATE omoccurrences o INNER JOIN taxstatus ts1 ON o.tidinterpreted = ts1.tid '.
 				'INNER JOIN taxstatus ts2 ON ts1.tidaccepted = ts2.tidaccepted '.
 				'INNER JOIN taxa t ON ts2.tid = t.tid '.
-				'SET o.LocalitySecurity = 0 '.
-				'WHERE (t.tid = '.$tid.') AND (o.localitySecurityReason IS NULL) ';
+				'SET o.recordSecurity = 0 '.
+				'WHERE (t.tid = '.$tid.') AND (o.securityReason IS NULL) ';
 			//echo $sql2; exit;
 			$this->conn->query($sql2);
 			$protectCnt = $this->protectGlobalSpecies();
@@ -84,33 +84,38 @@ class OccurrenceProtectedSpecies extends OccurrenceMaintenance {
 	}
 
 	public function setTaxonFilter($searchTaxon){
-		$sql = 'SELECT ts.tidaccepted FROM taxa t INNER JOIN taxstatus ts ON t.tid = ts.tid WHERE t.sciname LIKE "'.$searchTaxon.'%" AND ts.taxauthid = 1';
-		$rs = $this->conn->query($sql);
-		if($rs) {
-			while($r = $rs->fetch_object()){
-				$this->taxaArr[] = $r->tidaccepted;
-			}
-		}
-		$rs->free();
-
-		if($this->taxaArr){
-			//Get synonyms
-			$sql = 'SELECT tid  FROM taxstatus WHERE tidaccepted IN('.implode(',',$this->taxaArr).")";
-			$rs = $this->conn->query($sql);
-			if($rs) {
-				while($r = $rs->fetch_object()){
-					$this->taxaArr[] = $r->tid;
+		$searchTaxon = trim($searchTaxon).'%';
+		if($searchTaxon){
+			$sql = 'SELECT ts.tidaccepted FROM taxa t INNER JOIN taxstatus ts ON t.tid = ts.tid WHERE t.sciname LIKE ? AND ts.taxauthid = 1';
+			if($stmt = $this->conn->prepare($sql)){
+				$stmt->bind_param('s', $searchTaxon);
+				$stmt->execute();
+				$stmt->bind_result($tid);
+				while($stmt->fetch()){
+					$this->taxaArr[] = $tid;
 				}
+				$stmt->close();
 			}
-			$rs->free();
+
+			if($this->taxaArr){
+				//Get synonyms
+				$sql = 'SELECT tid FROM taxstatus WHERE tidaccepted IN('.implode(',',$this->taxaArr).")";
+				$rs = $this->conn->query($sql);
+				if($rs) {
+					while($r = $rs->fetch_object()){
+						$this->taxaArr[] = $r->tid;
+					}
+				}
+				$rs->free();
+			}
+			else $this->taxaArr[] = 0;
 		}
-		else $this->taxaArr[] = 0;
 	}
 
 	public function getSpecimenCnt(){
 		$retCnt = 0;
 		//Get number of specimens protected
-		$sql = 'SELECT COUNT(*) AS cnt FROM omoccurrences WHERE (LocalitySecurity > 0)';
+		$sql = 'SELECT COUNT(*) AS cnt FROM omoccurrences WHERE (recordSecurity > 0)';
 		$rs = $this->conn->query($sql);
 		if($r = $rs->fetch_object()){
 			$retCnt = $r->cnt;

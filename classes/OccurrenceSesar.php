@@ -1,5 +1,6 @@
 <?php
-include_once($SERVER_ROOT.'/classes/Manager.php');
+include_once($SERVER_ROOT . '/classes/Manager.php');
+include_once($SERVER_ROOT . '/classes/utilities/GeneralUtil.php');
 
 class OccurrenceSesar extends Manager {
 
@@ -148,7 +149,7 @@ class OccurrenceSesar extends Manager {
 			//$this->logOrEcho('#'.$increment.': IGSN created for <a href="../editor/occurrenceeditor.php?occid='.$this->fieldMap['occid']['value'].'" target="_blank">'.$this->fieldMap['catalogNumber']['value'].'</a>',1);
 			if($this->registrationMethod == 'api'){
 				if($this->registerIdentifiersViaApi()){
-					$this->logOrEcho('#'.$increment.': IGSN registered: <a href="../editor/occurrenceeditor.php?occid='.$r['occid'].'" target="_blank">'.$igsn.'</a>',1);
+					$this->logOrEcho('#' . htmlspecialchars($increment, ENT_COMPAT | ENT_HTML401 | ENT_SUBSTITUTE) . ': IGSN registered: <a href="../editor/occurrenceeditor.php?occid=' . htmlspecialchars($r['occid'], ENT_COMPAT | ENT_HTML401 | ENT_SUBSTITUTE) . '" target="_blank">' . htmlspecialchars($igsn, ENT_COMPAT | ENT_HTML401 | ENT_SUBSTITUTE) . '</a>',1);
 				}
 				$this->igsnDom = null;
 			}
@@ -164,6 +165,9 @@ class OccurrenceSesar extends Manager {
 			}
 			elseif($this->registrationMethod == 'xml'){
 				$this->logOrEcho('XML document created');
+				ob_start();
+				ob_clean();
+				ob_end_flush();
 				header('Content-Description: ');
 				header('Content-Type: application/xml');
 				header('Content-Disposition: attachment; filename=SESAR_IGSN_registration_'.date('Y-m-d_His').'.xml');
@@ -247,7 +251,7 @@ class OccurrenceSesar extends Manager {
 		$status = false;
 		//$this->logOrEcho('Submitting XML to SESAR Systems');
 		$baseUrl = 'https://app.geosamples.org/webservices/upload.php';
-		if(!$this->productionMode) $baseUrl = 'https://sesardev.geosamples.org/webservices/upload.php';		// TEST URI
+		if(!$this->productionMode) $baseUrl = 'https://app-sandbox.geosamples.org/webservices/upload.php';		// TEST URI
 		$contentStr = $this->igsnDom->saveXML();
 		$requestData = array ('username' => $this->sesarUser, 'password' => $this->sesarPwd, 'content' => $contentStr);
 		$resArr = $this->getSesarApiData($baseUrl, 'post', $requestData);
@@ -288,19 +292,34 @@ class OccurrenceSesar extends Manager {
 							else $sampleArr[$childNode->nodeName] = $childNode->nodeValue;
 						}
 						if(isset($sampleArr['valid'])){
-							$msgStr = 'valid = '.$sampleArr['valid'];
-							if(isset($sampleArr['catnum']) && $sampleArr['catnum']) $msgStr .= '; ID = '.$sampleArr['catnum'];
-							if(isset($sampleArr['status']) && $sampleArr['status']) $msgStr .= '; status = '.$sampleArr['status'];
-							if(isset($sampleArr['error']) && $sampleArr['error']) $msgStr .= '; error = '.$sampleArr['error'];
 							$status = false;
-							$this->logOrEcho('FAILED: '.$msgStr,1);
+							$occid = 0;
+							$igsn = '';
+							$msgStr = 'valid = '.$sampleArr['valid'];
+							if(isset($sampleArr['catnum']) && $sampleArr['catnum']){
+								$msgStr .= '; ID = '.$sampleArr['catnum'];
+								$occid = trim($sampleArr['catnum'], '[] ');
+							}
+							if(isset($sampleArr['error']) && $sampleArr['error']){
+								$msgStr .= '; error = '.$sampleArr['error'];
+								if(preg_match('/(NEON[A-Z0-9]{5})/', $sampleArr['error'],$m)){
+									$igsn = $m[1];
+								}
+							}
+							if($occid && $igsn){
+								$status = $this->updateOccurrenceID($igsn, $occid);
+							}
+							if(!$status) $this->logOrEcho('FAILED: '.$msgStr,1);
 						}
 						elseif(isset($sampleArr['igsn']) && $sampleArr['igsn']){
 							$occid = 0;
 							$dbStatus = false;
-							if(preg_match('/\[\s*(\d+)\s*\]\s*$/', $sampleArr['name'],$m)){
-								$occid = $m[1];
-								$dbStatus = $this->updateOccurrenceID($sampleArr['igsn'], $occid);
+							if(preg_match('/\[\s*(\d+)\s*\]\s*$/', $sampleArr['name'],$m1)){
+								$occid = $m1[1];
+								if(preg_match('/(NEON[A-Z0-9]{5})/', $sampleArr['igsn'],$m2)){
+									$igsn = $m2[1];
+									$dbStatus = $this->updateOccurrenceID($igsn, $occid);
+								}
 							}
 							else{
 								$this->errorMessage = 'WARNING: unable to extract occid to add igsn ('.$sampleArr['name'].')';
@@ -369,7 +388,7 @@ class OccurrenceSesar extends Manager {
 		$this->addSampleElem($this->igsnDom, $sampleElem, 'current_archive', $this->collArr['collectionName']);
 		$this->addSampleElem($this->igsnDom, $sampleElem, 'current_archive_contact', $this->collArr['contact'].($this->collArr['email']?' ('.$this->collArr['email'].')':''));
 
-		$baseUrl = $this->getDomain().$GLOBALS['CLIENT_ROOT'].(substr($GLOBALS['CLIENT_ROOT'],-1)=='/'?'':'/');
+		$baseUrl = GeneralUtil::getDomain().$GLOBALS['CLIENT_ROOT'].(substr($GLOBALS['CLIENT_ROOT'],-1)=='/'?'':'/');
 		//$baseUrl = 'http://swbiodiversity.org/seinet/';
 		$url = $baseUrl.'collections/individual/index.php?occid='.$this->fieldMap['occid']['value'];
 		$externalUrlsElem = $this->igsnDom->createElement('external_urls');
@@ -409,9 +428,9 @@ class OccurrenceSesar extends Manager {
 			}
 		}
 		else{
-			$this->errorMessage = 'ERROR adding IGSN to occurrence table: IGSN ('.$igsn.') not 9 digits';
+			$this->errorMessage = 'FATAL ERROR adding IGSN to occurrence table: IGSN ('.$igsn.') not 9 digits';
 			//$this->logOrEcho('ERROR adding IGSN to occurrence table: IGSN ('.$igsn.') not 9 digits',2);
-			$status = false;
+			exit;
 		}
 		return $status;
 	}
@@ -446,7 +465,7 @@ class OccurrenceSesar extends Manager {
 
 	private function cleanCountryStr($countryStr){
 		if(!$countryStr) return $countryStr;
-		$countryStr = $this->mbStrtr($countryStr,'áéÉ','aeE');
+		$countryStr = mb_strtr($countryStr,'áéÉ','aeE');
 		$testStr = strtolower($countryStr);
 		$synonymArr = array('united states of america'=>'United States','usa'=>'United States','u.s.a.'=>'united states','us'=>'United States');
 		if(array_key_exists($testStr, $synonymArr)) $countryStr = $synonymArr[$testStr];
@@ -483,20 +502,6 @@ class OccurrenceSesar extends Manager {
 			}
 		}
 		return $countryStr;
-	}
-
-	function mbStrtr($str, $from, $to = null) {
-		if(function_exists('mb_strtr')) {
-			return mb_strtr($str, $from, $to);
-		}
-		else{
-			if(is_array($from)) {
-				$from = array_map('utf8_decode', $from);
-				$from = array_map('utf8_decode', array_flip ($from));
-				return utf8_encode (strtr (utf8_decode ($str), array_flip ($from)));
-			}
-			return utf8_encode (strtr (utf8_decode ($str), utf8_decode($from), utf8_decode ($to)));
-		}
 	}
 
 	//GUID verification functions

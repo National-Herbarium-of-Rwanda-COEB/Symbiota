@@ -52,8 +52,12 @@ else include_once($SERVER_ROOT.'/content/lang/collections/editor/includes/imgpro
 		}
 	}
 </script>
+<style>
+	.ocr-box{ padding: 5px; float:left; }
+	.ocr-box button{ margin: 5px; }
+</style>
 <div id="labelProcDiv" style="width:100%;height:1050px;position:relative">
-	<fieldset id="labelProcFieldset" style="height:95%;background-color:white;">
+	<fieldset id="labelProcFieldset" style="background-color:white;">
 		<legend><b><?php echo $LANG['LABEL_PROCESSING']; ?></b></legend>
 		<div id="labelHeaderDiv" style="margin-top:-10px;height:15px;position:relative">
 			<div style="float:left;margin-top:3px;margin-right:15px"><a id="zoomInfoDiv" href="#"><?php echo $LANG['ZOOM']; ?></a></div>
@@ -61,20 +65,22 @@ else include_once($SERVER_ROOT.'/content/lang/collections/editor/includes/imgpro
 				<?php echo $LANG['ZOOM_DIRECTIONS']; ?>
 			</div>
 			<div style="float:left;margin-right:15px">
-				<div id="draggableImgDiv" style="float:left" title="<?php echo $LANG['MAKE_DRAGGABLE']; ?>"><a href="#" onclick="draggableImgPanel()"><img src="../../images/draggable.png" style="width:15px" /></a></div>
-				<div id="floatImgDiv" style="float:left;margin-left:10px" title="<?php echo $LANG['ALLOW_REMAIN_ACTIVE']; ?>"><a href="#" onclick="floatImgPanel()"><img src="../../images/floatdown.png" style="width:15px" /></a></div>
-				<div id="anchorImgDiv" style="float:left;margin-left:10px;display:none" title="<?php echo $LANG['ANCHOR_IMG']; ?>"><a href="#" onclick="anchorImgPanel()"><img src="../../images/anchor.png" style="width:15px" /></a></div>
+				<div id="draggableImgDiv" style="float:left" title="<?php echo $LANG['MAKE_DRAGGABLE']; ?>"><a href="#" onclick="draggableImgPanel()"><img src="../../images/draggable.png" style="width:1.3em" /></a></div>
+				<div id="floatImgDiv" style="float:left;margin-left:10px" title="<?php echo $LANG['ALLOW_REMAIN_ACTIVE']; ?>"><a href="#" onclick="floatImgPanel()"><img src="../../images/floatdown.png" style="width:1.3em" /></a></div>
+				<div id="anchorImgDiv" style="float:left;margin-left:10px;display:none" title="<?php echo $LANG['ANCHOR_IMG']; ?>"><a href="#" onclick="anchorImgPanel()"><img src="../../images/anchor.png" style="width:1.3em" /></a></div>
 			</div>
 			<div style="float:left;;padding-right:10px;margin:2px 20px 0px 0px;"><?php echo $LANG['ROTATE']; ?>: <a href="#" onclick="rotateImage(-90)">&nbsp;L&nbsp;</a> &lt;&gt; <a href="#" onclick="rotateImage(90)">&nbsp;R&nbsp;</a></div>
-			<div style="float:right;padding:0px 3px;margin:0px 3px;"><input id="imgreslg" name="resradio" type="radio" onchange="changeImgRes('lg')" /><?php echo $LANG['HIGH_RES']; ?>.</div>
-			<div style="float:right;padding:0px 3px;margin:0px 3px;"><input id="imgresmed" name="resradio"  type="radio" checked onchange="changeImgRes('med')" /><?php echo $LANG['MED_RES']; ?>.</div>
+			<div style="float:right;margin:0px 3px;">
+				<div><input id="imgresmed" name="resradio"  type="radio" checked onchange="changeImgRes('med')" /><?php echo $LANG['MED_RES']; ?>.</div>
+				<div><input id="imgreslg" name="resradio" type="radio" onchange="changeImgRes('lg')" /><?php echo $LANG['HIGH_RES']; ?>.</div>
+			</div>
 		</div>
 		<div id="labelprocessingdiv" style="clear:both;">
 			<?php
 			$imgCnt = 1;
 			foreach($imgArr as $imgCnt => $iArr){
 				$iUrl = $iArr['web'];
-				$imgId = $iArr['imgid'];
+				$imgId = $iArr['mediaid'];
 				?>
 				<div id="labeldiv-<?php echo $imgCnt; ?>" style="display:<?php echo ($imgCnt==1?'block':'none'); ?>;">
 					<div>
@@ -86,17 +92,29 @@ else include_once($SERVER_ROOT.'/content/lang/collections/editor/includes/imgpro
 					}
 					?>
 					<div style="width:100%;clear:both;">
-						<div style="float:left;">
-							<button value="OCR Image" onclick="ocrImage(this,<?php echo $imgId.','.$imgCnt; ?>);" ><?php echo $LANG['OCR_IMAGE']; ?></button>
-							<img id="workingcircle-<?php echo $imgCnt; ?>" src="../../images/workingcircle.gif" style="display:none;" />
-						</div>
-						<div style="float:left;">
-							<fieldset style="width:200px;background-color:lightyellow;">
-								<legend><?php echo $LANG['OPTIONS']; ?></legend>
-								<input type="checkbox" id="ocrfull" value="1" /> <?php echo $LANG['OCR_WHOLE_IMG']; ?><br/>
-								<input type="checkbox" id="ocrbest" value="1" /> <?php echo $LANG['OCR_ANALYSIS']; ?>
+						<fieldset class="ocr-box">
+							<legend>Tesseract OCR</legend>
+							<input type="checkbox" id="ocrfull-tess" value="1" /> <?php echo $LANG['OCR_WHOLE_IMG']; ?><br/>
+							<input type="checkbox" id="ocrbest" value="1" /> <?php echo $LANG['OCR_ANALYSIS']; ?>
+							<div>
+								<button class="button icon-button" value="OCR Image" onclick="ocrImage(this,'tess', <?php echo $imgId.','.$imgCnt; ?>);" ><?php echo $LANG['OCR_IMAGE']; ?></button>
+								<img id="workingcircle-tess-<?php echo $imgCnt; ?>" src="../../images/workingcircle.gif" style="display:none;" />
+							</div>
+						</fieldset>
+						<?php
+						if(!empty($DIGILEAP_OCR_ACTIVATED)){
+							?>
+							<fieldset class="ocr-box">
+								<legend>DigiLeap OCR</legend>
+								<input type="checkbox" id="ocrfull-digi" value="1" /> <?php echo $LANG['OCR_WHOLE_IMG']; ?><br/>
+								<div>
+									<button class="button icon-button" value="OCR Image" onclick="ocrImage(this,'digi', <?php echo $imgId.','.$imgCnt; ?>);" ><?php echo $LANG['OCR_IMAGE']; ?></button>
+									<img id="workingcircle-digi-<?php echo $imgCnt; ?>" src="../../images/workingcircle.gif" style="display:none;" />
+								</div>
 							</fieldset>
-						</div>
+							<?php
+						}
+						?>
 						<div style="float:right;margin-right:20px;font-weight:bold;">
 							<?php echo $LANG['IMAGE'].' '.$imgCnt.' '.$LANG['OF'].' ';
 							echo count($imgArr);

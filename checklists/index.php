@@ -24,17 +24,13 @@ $clManager->setProj($pid);
 	?>
 	<div class="navpath">
 		<a href="../index.php"><?php echo (isset($LANG['NAV_HOME'])?$LANG['NAV_HOME']:'Home'); ?></a> &gt;&gt;
-		<b><?php echo (isset($LANG['SPECIES_CHECKLISTS'])?$LANG['SPECIES_CHECKLISTS']:'Species Inventories'); ?></b>
+		<b><?php echo (isset($LANG['SPECIES_INVENTORIES'])?$LANG['SPECIES_INVENTORIES']:'Species Inventories'); ?></b>
 	</div>
 	<div id="innertext">
-		<h1><?php echo (isset($LANG['SPECIES_CHECKLISTS'])?$LANG['SPECIES_CHECKLISTS']:'Species Checklists'); ?></h1>
+		<h1><?php echo (isset($LANG['SPECIES_INVENTORIES'])?$LANG['SPECIES_INVENTORIES']:'Species Inventories'); ?></h1>
         <div style="margin:20px;">
-            <p><a href="https://www.rwandabiodiversity.net/checklists/checklist.php?clid=2">Amphibians Checklist of Rwanda, CoEB Natural History Museum</a><br><br>
-            <a href="https://www.rwandabiodiversity.net/checklists/checklist.php?clid=4">Fish Checklist of Rwanda, CoEB Natural History Museum</a><br><br>
-            <a href="https://www.rwandabiodiversity.net/checklists/checklist.php?clid=1">Mammals Checklist of Rwanda, CoEB Natural History Museum</a><br><br>
-            <a href="https://www.rwandabiodiversity.net/checklists/checklist.php?clid=3">Reptiles Checklist of Rwanda, CoEB Natural History Museum</a><br><br></p>
 			<?php
-            $researchArr = $clManager->getChecklists(1);
+            $researchArr = $clManager->getChecklists();
 			if($researchArr){
 				foreach($researchArr as $pid => $projArr){
 					?>

@@ -2,9 +2,9 @@
 /*
  * Used by automatic nightly process and by the occurrence editor (/collections/editor/occurrenceeditor.php)
  */
-include_once($SERVER_ROOT.'/config/dbconnection.php');
-include_once($SERVER_ROOT.'/classes/Manager.php');
-include_once($SERVER_ROOT.'/classes/Encoding.php');
+include_once($SERVER_ROOT . '/classes/Manager.php');
+include_once($SERVER_ROOT . '/classes/utilities/Encoding.php');
+include_once($SERVER_ROOT . '/classes/utilities/GeneralUtil.php');
 
 class SpecProcessorOcr extends Manager{
 
@@ -31,20 +31,16 @@ class SpecProcessorOcr extends Manager{
 		//unlink($this->imgUrlLocal);
 	}
 
-	public function ocrImageById($imgid,$getBest = 0,$sciName=''){
+	public function ocrImageById($imgid, $target = 'tess', $getBest = 0, $sciName=''){
 		$rawStr = '';
-		$sql = 'SELECT url, originalurl FROM images WHERE imgid = '.$imgid;
-		if($rs = $this->conn->query($sql)){
-			if($r = $rs->fetch_object()){
-				$imgUrl = ($r->originalurl?$r->originalurl:$r->url);
-				$rawStr = $this->ocrImageByUrl($imgUrl, $getBest, $sciName);
-			}
-			$rs->free();
+		if($imgUrl = $this->getImageUrl($imgid)){
+			if($target == 'digi') $rawStr = $this->ocrImageViaDigiLeap($imgid);
+			else $rawStr = $this->ocrImageByUrl($imgUrl, $getBest, $sciName);
 		}
 		return $rawStr;
 	}
 
-	private function ocrImageByUrl($imgUrl,$getBest = 0,$sciName=''){
+	private function ocrImageByUrl($imgUrl, $getBest = 0, $sciName=''){
 		$rawStr = '';
 		if($imgUrl){
 			if($this->loadImage($imgUrl)){
@@ -53,7 +49,7 @@ class SpecProcessorOcr extends Manager{
 					$rawStr = $this->getBestOCR($sciName);
 				}
 				else{
-					$rawStr = $this->ocrImage();
+					$rawStr = $this->ocrImageViaTesseract();
 				}
 				if(!$rawStr) {
 					//Check for and remove problematic boarder
@@ -62,7 +58,7 @@ class SpecProcessorOcr extends Manager{
 							$rawStr = $this->getBestOCR($sciName);
 						}
 						else{
-							$rawStr = $this->ocrImage();
+							$rawStr = $this->ocrImageViaTesseract();
 						}
 					}
 					if(!$rawStr) $rawStr = 'Failed OCR return';
@@ -85,7 +81,7 @@ class SpecProcessorOcr extends Manager{
 		return $rawStr;
 	}
 
-	private function ocrImage($url = ""){
+	private function ocrImageViaTesseract($url = ""){
 		global $TESSERACT_PATH;
 		$retStr = '';
 		if(!$url) $url = $this->imgUrlLocal;
@@ -125,12 +121,87 @@ class SpecProcessorOcr extends Manager{
 		return $retStr;//$this->cleanRawStr($retStr);
 	}
 
-	private function databaseRawStr($imgId,$rawStr,$notes,$source){
-		if(is_numeric($imgId) && $rawStr){
+	//DigiLeap functions
+	public function ocrImageViaDigiLeap($imgid){
+		$ocrStr = '';
+		if($imgUrl = $this->getImageUrl($imgid)){
+			if($this->loadImage($imgUrl)){
+				$this->cropImage();
+				if($resArr = $this->getDigiLeapOcr($this->imgUrlLocal)){
+					$ocrStr = $resArr['results'][0]['text'];
+				}
+				else{
+					$ocrStr = $this->getErrorMessage();
+				}
+			}
+		}
+		return $ocrStr;
+	}
+
+	private function getDigiLeapOcr($imgUrl){
+		$resJson = false;
+		$url = 'http://3.89.120.132/ocr-labels';
+		$ch = curl_init();
+		curl_setopt($ch, CURLOPT_URL, $url);
+		$loginStr = $GLOBALS['PORTAL_GUID'].':'.$this->getConfigAttribute('DigiLeapApiKey');
+		curl_setopt($ch, CURLOPT_USERPWD, $loginStr);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+		curl_setopt($ch, CURLOPT_POST, true);
+		$headerArr = array (
+			'Accept: application/json',
+			'Content-Type: multipart/form-data'
+		);
+		curl_setopt($ch, CURLOPT_HTTPHEADER, $headerArr);
+		$cfile = new CURLFile($imgUrl, 'image/jpeg', basename($imgUrl));
+		$postData = array(
+			'labels' => '',
+			'extract' => 'typewritten'
+		);
+		$postData['sheet'] = $cfile;
+		curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
+		$resJson = curl_exec($ch);
+		$retArr['retCode'] = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+		if($retArr['retCode'] != 200){
+			if(curl_errno($ch)) $this->errorMessage = 'FATAL CURL ERROR: '.curl_error($ch).' (#'.curl_errno($ch).') '.$retArr['retCode'];
+			$this->errorMessage = 'Problem retrieving OCR, HTTP code: '.$retArr['retCode'];
+			return false;
+		}
+		curl_close($ch);
+		return json_decode(json_decode($resJson), true);
+	}
+
+	public function digiLeapIsActive(){
+		if($this->getConfigAttribute('DigiLeapApiKey')) return true;
+		return false;
+	}
+
+	//Misc OCR support functions
+	private function getImageUrl($mediaID){
+		$retUrl = false;
+		if(is_numeric($mediaID)){
+			$sql = 'SELECT url, originalurl FROM media WHERE mediaID = ?';
+			if($stmt = $this->conn->prepare($sql)){
+				$stmt->bind_param('i', $mediaID);
+				$stmt->execute();
+				$url = '';
+				$stmt->bind_result($url, $retUrl);
+				$stmt->fetch();
+				$stmt->close();
+				if(!$retUrl) $retUrl = $url;
+			}
+		}
+		return $retUrl;
+	}
+
+	private function databaseRawStr($mediaID,$rawStr,$notes,$source){
+		if(is_numeric($mediaID) && $rawStr){
+			$rawStr = $this->cleanInStr($this->encodeString($rawStr));
 			$score = '';
 			if($rawStr == 'Failed OCR return') $score = 0;
-			$sql = 'INSERT INTO specprocessorrawlabels(imgid,rawstr,notes,source,score) '.
-				'VALUE ('.$imgId.',"'.$this->cleanInStr($rawStr).'",'.
+			$sql = 'INSERT INTO specprocessorrawlabels(mediaID,rawstr,notes,source,score) '.
+				'VALUE ('.$mediaID.',"'.$rawStr.'",'.
 				($notes?'"'.$this->cleanInStr($notes).'"':'NULL').','.
 				($source?'"'.$this->cleanInStr($source).'"':'NULL').','.
 				($score?'"'.$this->cleanInStr($score).'"':'NULL').')';
@@ -149,14 +220,14 @@ class SpecProcessorOcr extends Manager{
 	private function loadImage($imgUrl){
 		$status = false;
 		if($imgUrl){
-			if(substr($imgUrl,0,1)=="/"){
-				if(array_key_exists("imageDomain",$GLOBALS) && $GLOBALS["imageDomain"]){
+			if(substr($imgUrl,0,1) == '/'){
+				if(!empty($GLOBALS['MEDIA_DOMAIN'])){
 					//If there is an image domain name is set in symbini.php and url is relative,
 					//then it's assumed that image is located on another server, thus add domain to url
-					$imgUrl = $GLOBALS["imageDomain"].$imgUrl;
+					$imgUrl = $GLOBALS['MEDIA_DOMAIN'] . $imgUrl;
 				}
 				else{
-					$imgUrl = $this->getDomain().$imgUrl;
+					$imgUrl = GeneralUtil::getDomain() . $imgUrl;
 				}
 			}
 			//Set temp folder path and file names
@@ -189,9 +260,9 @@ class SpecProcessorOcr extends Manager{
 			//Batch OCR
 			foreach($collArr as $collid => $instCode){
 				$this->logOrEcho('Starting batch processing for '.$instCode);
-				$sql = 'SELECT i.imgid, IFNULL(i.originalurl, i.url) AS url, o.sciName, i.occid '.
-					'FROM omoccurrences o INNER JOIN images i ON o.occid = i.occid '.
-					'LEFT JOIN specprocessorrawlabels r ON i.imgid = r.imgid '.
+				$sql = 'SELECT m.mediaID, IFNULL(m.originalurl, m.url) AS url, o.sciName, m.occid '.
+					'FROM omoccurrences o INNER JOIN media m ON o.occid = m.occid '.
+					'LEFT JOIN specprocessorrawlabels r ON m.mediaID = r.mediaID '.
 					'WHERE (o.collid = '.$collid.') AND r.prlid IS NULL ';
 				if($procStatus) $sql .= 'AND o.processingstatus = "unprocessed" ';
 				if($limit) $sql .= 'LIMIT '.$limit;
@@ -200,10 +271,10 @@ class SpecProcessorOcr extends Manager{
 					while($r = $rs->fetch_object()){
 						$rawStr = $this->ocrImageByUrl($r->url,$getBest,$r->sciName);
 						if($rawStr != 'ERROR'){
-							$this->logOrEcho('#'.$recCnt.': image <a href="../editor/occurrenceeditor.php?occid='.$r->occid.'" target="_blank">'.$r->imgid.'</a> processed ('.date("Y-m-d H:i:s").')');
+							$this->logOrEcho('#'.$recCnt.': image <a href="../editor/occurrenceeditor.php?occid=' . $r->occid . '" target="_blank">' . $r->mediaID . '</a> processed (' . date("Y-m-d H:i:s") . ')');
 							$notes = '';
 							$source = 'Tesseract: '.date('Y-m-d');
-							$this->databaseRawStr($r->imgid,$rawStr,$notes,$source);
+							$this->databaseRawStr($r->mediaID,$rawStr,$notes,$source);
 						}
 						ob_flush();
 						flush();
@@ -215,7 +286,7 @@ class SpecProcessorOcr extends Manager{
 		}
 	}
 
-	// OCR upload functions
+	//OCR upload functions
 	public function harvestOcrText($postArr){
 		$status = true;
 		set_time_limit(3600);
@@ -394,25 +465,25 @@ class SpecProcessorOcr extends Manager{
 				}
 			}
 			if($catNumber){
-				//Grab image primary key (imgid)
+				//Grab image primary key (mediaID)
 				$imgArr = array();
-				$sql = 'SELECT i.imgid, IFNULL(i.originalurl,i.url) AS url '.
-					'FROM images i INNER JOIN omoccurrences o ON i.occid = o.occid '.
+				$sql = 'SELECT m.mediaID, IFNULL(m.originalurl,m.url) AS url '.
+					'FROM media m INNER JOIN omoccurrences o ON m.occid = o.occid '.
 					'WHERE (o.collid = '.$this->collid.') AND (o.catalognumber = "'.$this->cleanInStr($catNumber).'")';
 				$rs = $this->conn->query($sql);
 				while($r = $rs->fetch_object()){
-					$imgArr[$r->imgid] = $r->url;
+					$imgArr[$r->mediaID] = $r->url;
 				}
 				$rs->free();
 				if(!$imgArr){
 					$fileBaseName = basename($sourcePath.$fileName, ".txt");
 					if(strlen($fileBaseName)>4){
-						$sql = 'SELECT i.imgid, IFNULL(i.originalurl,i.url) AS url '.
-							'FROM images i INNER JOIN omoccurrences o ON i.occid = o.occid '.
-							'WHERE (o.collid = '.$this->collid.') AND ((i.originalurl LIKE "%/'.$this->cleanInStr($fileBaseName).'.jpg") OR (i.url LIKE "%/'.$this->cleanInStr($fileBaseName).'.jpg"))';
+						$sql = 'SELECT m.mediaID, IFNULL(m.originalurl,m.url) AS url '.
+							'FROM media m INNER JOIN omoccurrences o ON m.occid = o.occid '.
+							'WHERE (o.collid = '.$this->collid.') AND ((m.originalurl LIKE "%/'.$this->cleanInStr($fileBaseName).'.jpg") OR (m.url LIKE "%/'.$this->cleanInStr($fileBaseName).'.jpg"))';
 						$rs = $this->conn->query($sql);
 						while($r = $rs->fetch_object()){
-							$imgArr[$r->imgid] = $r->url;
+							$imgArr[$r->mediaID] = $r->url;
 						}
 						$rs->free();
 					}
@@ -464,13 +535,13 @@ class SpecProcessorOcr extends Manager{
 					$imgH = imagesy($img);
 					if(($this->cropX + $this->cropW) > 1) $this->cropW = 1 - $this->cropX;
 					if(($this->cropY + $this->cropH) > 1) $this->cropH = 1 - $this->cropY;
-					$pX = $imgW*$this->cropX;
-					$pY = $imgH*$this->cropY;
-					$pW = $imgW*$this->cropW;
-					$pH = $imgH*$this->cropH;
+					$pX = (int)($imgW*$this->cropX);
+					$pY = (int)($imgH*$this->cropY);
+					$pW = (int)($imgW*$this->cropW);
+					$pH = (int)($imgH*$this->cropH);
 					$dest = imagecreatetruecolor($pW,$pH);
 
-					// Copy
+					// Copy image
 					if(imagecopy($dest,$img,0,0,$pX,$pY,$pW,$pH)){
 						//$status = imagejpeg($dest,str_replace('_img.jpg','_crop.jpg',$this->imgUrlLocal));
 						$status = imagejpeg($dest,$this->imgUrlLocal);
@@ -581,12 +652,12 @@ class SpecProcessorOcr extends Manager{
 	//Roberts scoring and treatment functions
 	private function getBestOCR($sciName = ''){
 		//Base run
-		$rawStr_base = $this->ocrImage();
+		$rawStr_base = $this->ocrImageViaTesseract();
 		$score_base = $this->scoreOCR($rawStr_base, $sciName);
 		$urlTemp = str_replace('.jpg','_f1.jpg',$this->imgUrlLocal);
 		copy($this->imgUrlLocal,$urlTemp);
 		$this->filterImage($urlTemp);
-		$rawStr_treated = $this->ocrImage($urlTemp);
+		$rawStr_treated = $this->ocrImageViaTesseract($urlTemp);
 		$score_treated = $this->scoreOCR($rawStr_treated, $sciName);
 		unlink($urlTemp);
 		if($score_treated > $score_base) {
@@ -748,22 +819,28 @@ class SpecProcessorOcr extends Manager{
 
 	//General setters and getters
 	public function setCropX($x){
-		$this->cropX = $x;
+		$this->cropX = $this->cleanImageValue($x);
 	}
 	public function setCropY($y){
-		$this->cropY = $y;
+		$this->cropY = $this->cleanImageValue($y);
 	}
 	public function setCropW($w){
-		$this->cropW = $w;
+		$this->cropW = $this->cleanImageValue($w);
 	}
 	public function setCropH($h){
-		$this->cropH = $h;
+		$this->cropH = $this->cleanImageValue($h);
+	}
+
+	private function cleanImageValue($d){
+		if($d < 0) $d = 0;
+		elseif($d > 1) $d = 1;
+		return $d;
 	}
 
 	private function setTempPath(){
 		$tempPath = 0;
-		if(array_key_exists('tempDirRoot',$GLOBALS)){
-			$tempPath = $GLOBALS['tempDirRoot'];
+		if(!empty($GLOBALS['TEMP_DIR_ROOT'])){
+			$tempPath = $GLOBALS['TEMP_DIR_ROOT'];
 		}
 		else{
 			$tempPath = ini_get('upload_tmp_dir');

@@ -29,26 +29,31 @@ class ObservationSubmitManager {
 				$eventDay = date('d',$dateObj);
 				$startDay = date('z',$dateObj)+1;
 			}
-			//Get tid for scinetific name
+			//Get tid for scientific name
 			$tid = 0;
-			$localitySecurity = (array_key_exists('localitysecurity',$postArr)?1:0);
+			$recordSecurity = (array_key_exists('recordsecurity', $postArr) ? 1 : 0);
 			if($postArr['sciname']){
 				$result = $this->conn->query('SELECT tid, securitystatus FROM taxa WHERE (sciname = "'.$postArr['sciname'].'")');
 				if($row = $result->fetch_object()){
 					$tid = $row->tid;
-					if($row->securitystatus > 0) $localitySecurity = $row->securitystatus;
-					if(!$localitySecurity){
-						//Check to see if species is rare or sensitive within a state
-						$sql = 'SELECT cl.tid '.
-							'FROM fmchecklists c INNER JOIN fmchklsttaxalink cl ON c.clid = cl.clid '.
-							'WHERE c.type = "rarespp" AND c.locality = "'.$postArr['stateprovince'].'" AND cl.tid = '.$tid;
-						$rs = $this->conn->query($sql);
-						if($rs->num_rows){
-							$localitySecurity = 1;
+					if(empty($postArr['cultivationstatus'])){
+						//Set localitySecurity based on global or state protection setting, but only if not cultivated
+						if($row->securitystatus > 0) $recordSecurity = $row->securitystatus;
+						if(!$recordSecurity){
+							//Check to see if species is rare or sensitive within a state
+							$sql = 'SELECT cl.tid
+								FROM fmchecklists c INNER JOIN fmchklsttaxalink cl ON c.clid = cl.clid
+								WHERE c.type = "rarespp" AND c.locality = "'.$postArr['stateprovince'].'" AND cl.tid = '.$tid;
+							$rs = $this->conn->query($sql);
+							if($rs->num_rows){
+								$recordSecurity = 1;
+							}
 						}
 					}
 				}
 			}
+			$securityReason = '';
+			if($recordSecurity) $securityReason = '[Security Setting Locked]';
 
 			$verbatimElevation = $postArr['verbatimelevation'];
 			if(is_numeric($verbatimElevation)) $verbatimElevation .= 'ft.';
@@ -57,7 +62,7 @@ class ObservationSubmitManager {
 				'identificationReferences, recordedBy, recordNumber, '.
 				'associatedCollectors, eventDate, year, month, day, startDayOfYear, habitat, substrate, occurrenceRemarks, associatedTaxa, '.
 				'verbatimattributes, reproductiveCondition, cultivationStatus, establishmentMeans, country, '.
-				'stateProvince, county, locality, localitySecurity, decimalLatitude, decimalLongitude, '.
+				'stateProvince, county, locality, recordSecurity, securityReason, decimalLatitude, decimalLongitude, '.
 				'geodeticDatum, coordinateUncertaintyInMeters, georeferenceRemarks, minimumElevationInMeters, verbatimElevation, observeruid, dateEntered) '.
 				'VALUES ('.$this->collId.',"HumanObservation",'.($postArr['family']?'"'.$this->cleanInStr($postArr['family']).'"':'NULL').','.
 				'"'.$this->cleanInStr($postArr['sciname']).'","'.
@@ -82,7 +87,7 @@ class ObservationSubmitManager {
 				'"'.$this->cleanInStr($postArr['country']).'",'.
 				($postArr['stateprovince']?'"'.$this->cleanInStr($postArr['stateprovince']).'"':'NULL').','.
 				($postArr['county']?'"'.$this->cleanInStr($postArr['county']).'"':'NULL').','.
-				'"'.$this->cleanInStr($postArr['locality']).'",'.$localitySecurity.','.
+				'"' . $this->cleanInStr($postArr['locality']) . '",' . $recordSecurity . ',' . ($securityReason ? '"' . $securityReason . '"' : 'NULL') . ',' .
 				$postArr['decimallatitude'].','.$postArr['decimallongitude'].','.
 				($postArr['geodeticdatum']?'"'.$this->cleanInStr($postArr['geodeticdatum']).'"':'NULL').','.
 				($postArr['coordinateuncertaintyinmeters']?'"'.$postArr['coordinateuncertaintyinmeters'].'"':'NULL').','.
@@ -96,29 +101,37 @@ class ObservationSubmitManager {
 				//Link observation to checklist
 				if(isset($postArr['clid'])){
 					$clid = $postArr['clid'];
-					$finalTid = 0;
+					$clTaxaID = 0;
 					if($tid){
 						//If synonym is already linked, get tid of linked taxon. If not, then add using current tid
-						$sql = 'SELECT cltl.tid '.
+						$sql = 'SELECT cltl.tid, cltl.clTaxaID '.
 							'FROM fmchklsttaxalink cltl INNER JOIN taxstatus ts1 ON cltl.tid = ts1.tid '.
 							'INNER JOIN taxstatus ts2 ON ts1.tidaccepted = ts2.tidaccepted '.
 							'WHERE ts1.taxauthid = 1 AND ts2.taxauthid = 1 AND cltl.clid = '.$clid.' AND ts2.tid = '.$tid;
 						$rs = $this->conn->query($sql);
 						while($r = $rs->fetch_object()){
-							$finalTid = $r->tid;
-							if($finalTid == $tid) break;
+							$clTaxaID = $r->clTaxaID;
+							if($r->tid == $tid) break;
 						}
 						$rs->free();
-						if(!$finalTid){
-							$sql = 'INSERT INTO fmchklsttaxalink(tid,clid) '.
-								'VALUES('.$tid.','.$clid.')';
-							$this->conn->query($sql);
-							$finalTid = $tid;
+						if(!$clTaxaID){
+							$sql = 'INSERT INTO fmchklsttaxalink(tid,clid) VALUES(?,?)';
+							if($stmt = $this->conn->prepare($sql)){
+								$stmt->bind_param('ii', $tid, $clid);
+								$stmt->execute();
+								$clTaxaID = $stmt->insert_id;
+								$stmt->close();
+							}
+						}
+						if($clTaxaID){
+							$sql = 'INSERT INTO fmvouchers(clTaxaID, occid) VALUES(?,?) ';
+							if($stmt = $this->conn->prepare($sql)){
+								$stmt->bind_param('ii', $clTaxaID, $newOccId);
+								$stmt->execute();
+								$stmt->close();
+							}
 						}
 					}
-					$sql = 'INSERT INTO fmvouchers(tid,clid,occid) '.
-						'VALUES('.($finalTid?$finalTid:'NULL').','.$clid.','.$newOccId.') ';
-					$this->conn->query($sql);
 				}
 				//Load images
 				if(!$this->addImages($postArr,$newOccId,$tid)){
@@ -151,7 +164,7 @@ class ObservationSubmitManager {
 			$imgManager->reset();
 			$imgManager->setTargetPath($subTargetPath.'/'.date('Ym').'/');
 			//$imgManager->setMapLargeImg(false);
-			$imgManager->setPhotographerUid($GLOBALS['SYMB_UID']);
+			$imgManager->setCreatorUid($GLOBALS['SYMB_UID']);
 			$imgManager->setSortSeq(40);
 			$imgManager->setOccid($newOccId);
 			$imgManager->setTid($tid);

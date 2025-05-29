@@ -1,5 +1,7 @@
 <?php
 include_once($SERVER_ROOT.'/classes/SpecUploadBase.php');
+if($LANG_TAG != 'en' && file_exists($SERVER_ROOT . '/content/lang/classes/SpecUploadFile.'.$LANG_TAG.'.php')) include_once($SERVER_ROOT.'/content/lang/classes/OccurrenceEditorDeterminations.'.$LANG_TAG.'.php');
+else include_once($SERVER_ROOT . '/content/lang/classes/SpecUploadFile.en.php');
 class SpecUploadFile extends SpecUploadBase{
 
 	private $ulFileName;
@@ -9,7 +11,6 @@ class SpecUploadFile extends SpecUploadBase{
 	function __construct() {
  		parent::__construct();
 		$this->setUploadTargetPath();
-  		ini_set('auto_detect_line_endings', true);
 	}
 
 	public function __destruct(){
@@ -101,7 +102,7 @@ class SpecUploadFile extends SpecUploadBase{
 			set_time_limit(7200);
 		 	ini_set("max_input_time",240);
 
-			$this->outputMsg('<li>Initiating import from: '.$this->ulFileName.'</li>');
+			$this->outputMsg('<li>Initiating import from: ' . htmlspecialchars($this->ulFileName, ENT_COMPAT | ENT_HTML401 | ENT_SUBSTITUTE) . '</li>');
 		 	//First, delete all records in uploadspectemp table associated with this collection
 			$this->prepUploadData();
 
@@ -116,17 +117,37 @@ class SpecUploadFile extends SpecUploadBase{
 			$this->outputMsg('<li>Beginning to load records...</li>',1);
 			while($recordArr = $this->getRecordArr($fh)){
 				$recMap = Array();
+				$hasCultivarEpithet = false;
+				$hasTradeName = false;
+				$isCultivar = false;
+				$currentOccId = '';
 				foreach($this->occurFieldMap as $symbField => $sMap){
 					$indexArr = array_keys($headerArr,$sMap['field']);
 					$index = array_shift($indexArr);
 					if(array_key_exists($index,$recordArr)){
 						$valueStr = $recordArr[$index];
+						if($sMap['field'] == 'occurrenceid'){
+							$currentOccId = $valueStr;
+						}
+						if(!empty($valueStr) && $sMap['field'] == 'cultivarepithet'){
+							$hasCultivarEpithet = true;
+						}
+						if(!empty($valueStr) && $sMap['field'] == 'tradename'){
+							$hasTradeName = true;
+						}
+						if(strtolower($valueStr) == 'cultivar' && $sMap['field'] == 'taxonrank'){
+							$isCultivar = true;
+						}
 						//If value is enclosed by quotes, remove quotes
 						if(substr($valueStr,0,1) == '"' && substr($valueStr,-1) == '"'){
 							$valueStr = substr($valueStr,1,strlen($valueStr)-2);
 						}
 						$recMap[$symbField] = $valueStr;
 					}
+				}
+				if($isCultivar && !$hasCultivarEpithet && !$hasTradeName){
+					global $LANG;
+					echo '<span style="color: var(--danger-color);">'  . $LANG['UPLOAD_ERROR_MSG'] . ': ' . $currentOccId . '</span>'; exit;
 				}
 				if($this->uploadType == $this->SKELETAL && !isset($recMap['catalognumber']) && !isset($recMap['othercatalognumbers'])){
 					//Skip loading record
@@ -160,13 +181,13 @@ class SpecUploadFile extends SpecUploadBase{
 					if(!$this->conn->query($sqlA)){
 						$this->outputMsg('<li>ERROR cleaning recordID GUID</li>');
 					}
-					$sqlB = 'UPDATE uploadspectemp u INNER JOIN guidoccurrences g ON u.tempfield02 = g.guid '.
-						'SET u.occid = g.occid '.
-						'WHERE (u.collid IN('.$this->collId.')) AND (u.occid IS NULL)';
+					$sqlB = 'UPDATE uploadspectemp u INNER JOIN omoccurrences o ON u.tempfield02 = o.recordID '.
+						'SET u.occid = o.occid '.
+						'WHERE (u.collid IN('.$this->collId.')) AND (o.collid IN('.$this->collId.')) AND (u.occid IS NULL)';
 					if(!$this->conn->query($sqlB)){
 						$this->outputMsg('<li>ERROR populating occid from recordID GUID (stage1): '.$this->conn->error.'</li>');
 					}
-						$sqlC = 'UPDATE uploadspectemp u INNER JOIN omoccurrences o ON u.tempfield02 = o.occurrenceid '.
+					$sqlC = 'UPDATE uploadspectemp u INNER JOIN omoccurrences o ON u.tempfield02 = o.occurrenceid '.
 						'SET u.occid = o.occid '.
 						'WHERE (u.collid IN('.$this->collId.')) AND (o.collid IN('.$this->collId.')) AND (u.occid IS NULL)';
 					if(!$this->conn->query($sqlC)){
