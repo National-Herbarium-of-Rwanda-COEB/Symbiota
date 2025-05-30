@@ -470,14 +470,13 @@ class TaxonProfile extends Manager {
 	private function setLinkArr(){
 		if($this->linkArr === false && $this->tid){
 			$this->linkArr = array();
-			$sql = '(SELECT tlid, url, icon, title, notes, sortsequence
+			$sql = 'SELECT tlid, url, icon, title, notes, sortsequence
 				FROM taxalinks l
 				WHERE (l.tid = ' . $this->tid . ')
 				UNION
 				SELECT l.tlid, l.url, l.icon, l.title, l.notes, l.sortsequence
 				FROM taxalinks l INNER JOIN taxaenumtree e ON l.tid = e.parenttid
-				WHERE (e.tid = ' . $this->tid . '))
-				ORDER BY sortsequence, title';
+				WHERE (e.tid = ' . $this->tid . ')';
 			$rs = $this->conn->query($sql);
 			while($r = $rs->fetch_object()){
 				$this->linkArr[$r->tlid]['title'] = $r->title;
