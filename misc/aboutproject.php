@@ -24,7 +24,7 @@ else include_once($SERVER_ROOT . '/content/lang/misc/aboutproject.' . $LANG_TAG 
 			<b><?= $LANG['ABOUT_PROJECT']; ?></b>
 		</div>
 		<!-- This is inner text! -->
-		<div role="main" id="innertext" style="margin:10px 20px">
+		<div role="main" id="innertext">
 			<h1 class="page-heading"><?= $LANG['ABOUT_PROJECT']; ?></h1>
 
 		<p>The University of Rwanda is embarking on an effort to digitize and publish all of its natural history speccimen collections data and associated digital images. This important biodiversity data is mostly inaccessible to the global community of scientists as a result of not having representation in other major online biodiversity portals like the US based Integrated Digitized Biocollections (iDigBio) and Global Biodiversity Information Facility (GBIF).<br><br>Dr. Beth Kaplin, Director of the Center of Excellence in Biodiversity and Natural Resource Management is leading the team of Rwandan scientists to help Rwanda achieve this important mission. In 2021, a 3 year summer biodiversity field school was launched through funding from the Volkswagen Foundation. This program has brought together scientists from more than 10 countries to train emerging biodiversity conservationists in specimen collecting techniques and biodiversity data management. Biodiversity data for amphibians, birds, mammals, fish, ants, plants and fungi which have been recently collected in the field school program are now being published in the Rwanda Biodiversity Specimen Portal. The Rwanda Biodiversity Specimen Portal is planned to be the largest contributor of digital biodiversity records for Rwanda and the east African region. </p> 
